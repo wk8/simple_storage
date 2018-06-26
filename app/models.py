@@ -83,15 +83,20 @@ class UserToken(SelfCommittingObject, Base):
         if not string_token or len(string_token) != 64:
             return
 
-        prefix = uuid.UUID(string_token[:32])
-        candidate = db_session.query(cls).filter(cls.prefix == prefix.bytes).first()
+        try:
+            prefix = uuid.UUID(string_token[:32])
+            candidate = db_session.query(cls).filter(cls.prefix == prefix.bytes).first()
 
-        if not candidate:
-            return
+            if not candidate:
+                return
 
-        suffix = uuid.UUID(string_token[-32:])
-        if cls._slow_compare(bytearray(suffix.bytes), bytearray(candidate.suffix)):
-            return candidate.user_id
+            suffix = uuid.UUID(string_token[-32:])
+            if cls._slow_compare(bytearray(suffix.bytes), bytearray(candidate.suffix)):
+                return candidate.user_id
+        except ValueError:
+            # notably happens if the token is not the result of the
+            # concatenation of two valid UUIDs
+            pass
 
     @staticmethod
     def _slow_compare(a, b):

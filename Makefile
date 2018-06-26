@@ -17,7 +17,7 @@ lint: activate
 	. activate && pycodestyle app test
 
 activate: venv
-	@ [ -f activate ] || ln -s venv/bin/activate .
+	@ [ -f activate ] || (ln -s venv/bin/activate . && $(MAKE) requirements)
 
 venv:
 	@ [ -d venv ] || python3 -m venv venv

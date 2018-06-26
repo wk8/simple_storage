@@ -284,6 +284,10 @@ def test_files_happy_path(client, db_session):
     reply = get_list_files_and_check_reply(client, token)
     assert reply.json == []
 
+    # trying to delete again should yield a 404 too
+    reply = client.delete(route_2, token=token)
+    assert reply.status_code == 404
+
 
 def test_files_overwrite(client, db_session):
     token = get_valid_token(db_session)
@@ -314,6 +318,16 @@ def test_files_same_filename_different_users(client, db_session):
 
     # didn't overwrite user 1's file
     retrieve_jpg_and_check_reply(client, token_1, route, fixture_name=fixture_name_1)
+
+
+def test_invalid_token(client):
+    bogus_tokens = ['2ec4ef6596ee4df4bf2eb203db4bab656407b7f875b74a4eb1a68f349b571b9c',
+                    'Z' * 64,
+                    'hello']
+
+    for token in bogus_tokens:
+        reply = client.get('/files', token=token)
+        assert_error_json(reply, 'Invalid token', 401)
 
 
 ################
