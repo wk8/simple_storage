@@ -3,7 +3,7 @@ SHELL := /usr/bin/env bash
 
 .PHONY: run
 run: activate
-	. activate && flask run
+	. activate && FLASK_APP=app/app.py flask run
 
 .PHONY: test
 test: activate

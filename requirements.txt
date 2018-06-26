@@ -10,4 +10,5 @@ pluggy==0.6.0
 py==1.5.3
 pytest==3.6.2
 six==1.11.0
+SQLAlchemy==1.2.8
 Werkzeug==0.14.1
