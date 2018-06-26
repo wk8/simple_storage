@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/wk8/simple_storage.svg?branch=master)](https://travis-ci.org/wk8/simple_storage)
+
 # Simple storage
 
 Toy Flask project to store & serve files.

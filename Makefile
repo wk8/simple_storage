@@ -24,8 +24,8 @@ venv:
 
 .PHONY: requirements
 requirements: activate
-	. activate && venv/bin/pip install -r requirements.txt
+	. activate && pip install -r requirements.txt
 
 .PHONY: freeze
 freeze: activate
-	. activate && venv/bin/pip freeze > requirements.txt
+	. activate && pip freeze > requirements.txt
