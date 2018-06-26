@@ -4,3 +4,6 @@
 # venv-related files
 /venv/
 /activate
+
+# tests
+/.pytest_cache/
