@@ -7,3 +7,6 @@
 
 # tests
 /.pytest_cache/
+
+# DB
+/db.sqlite

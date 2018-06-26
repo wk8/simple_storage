@@ -5,7 +5,7 @@ import uuid
 from sqlalchemy import Column, ForeignKey, Index, Integer, LargeBinary, String, UniqueConstraint
 from sqlalchemy.orm import validates
 
-from database import Base
+from app.database import Base
 
 
 class SelfCommittingObject(object):
@@ -75,20 +75,16 @@ class UserToken(SelfCommittingObject, Base):
         return UserToken._bytes_to_string(self.prefix) + UserToken._bytes_to_string(self.suffix)
 
     @classmethod
-    def get_user_id_with_token(cls, string_token, db_session=None):
+    def get_user_id_with_token(cls, string_token, db_session):
         '''
         Returns the user ID corresponding to the given token, or `None` if the token
         is invalid
         '''
-        if len(string_token) != 64:
+        if not string_token or len(string_token) != 64:
             return
 
-        if db_session:
-            query = db_session.query(cls)
-        else:
-            query = cls.query
         prefix = uuid.UUID(string_token[:32])
-        candidate = query.filter(cls.prefix == prefix.bytes).first()
+        candidate = db_session.query(cls).filter(cls.prefix == prefix.bytes).first()
 
         if not candidate:
             return
@@ -117,6 +113,14 @@ class File(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     name = Column(String(255), nullable=False)
+    content_type = Column(String(255))
+    data = Column(LargeBinary())
 
     __table_args__ = (UniqueConstraint('user_id', 'name'),
                       Index('user_id_name_idx', 'user_id', 'name'))
+
+    def __init__(self, user_id, name, content_type, data, **kwargs):
+        self.user_id = user_id
+        self.name = name
+        self.content_type = content_type
+        self.data = data

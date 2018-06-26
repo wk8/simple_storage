@@ -6,10 +6,12 @@ click==6.7
 Flask==1.0.2
 itsdangerous==0.24
 Jinja2==2.10
+jsonschema==2.6.0
 MarkupSafe==1.0
 more-itertools==4.2.0
 pluggy==0.6.0
 py==1.5.3
+pycodestyle==2.4.0
 pycparser==2.18
 pytest==3.6.2
 six==1.11.0

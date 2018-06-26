@@ -1,16 +1,19 @@
 from flask import Flask, Response as FlaskResponse
 from flask.testing import FlaskClient
 
+import hashlib
 import json
+import os
 import pytest
 import random
 import re
 import string
+import tempfile
 import uuid
 
-from app import app
-from database import db_session
-from models import User, UserToken
+from app.database import init_db
+from app import create_app
+from app.models import User, UserToken
 
 JSON_CONTENT_TYPE = 'application/json'
 
@@ -21,6 +24,20 @@ class Client(FlaskClient):
             kwargs['data'] = json.dumps(kwargs.pop('json'))
             if 'content_type' not in kwargs:
                 kwargs['content_type'] = JSON_CONTENT_TYPE
+        elif 'fixture' in kwargs:
+            fixture = kwargs.pop('fixture')
+
+            path = fixture_path(fixture)
+            _, content_type = os.path.splitext(path)
+            kwargs['content_type'] = content_type[1:]
+
+            with open(path, 'rb') as input_file:
+                kwargs['data'] = input_file.read()
+
+        if 'token' in kwargs:
+            headers = kwargs.get('headers', {})
+            headers['X-Session'] = kwargs.pop('token')
+            kwargs['headers'] = headers
 
         return super(Client, self).open(*args, **kwargs)
 
@@ -35,24 +52,29 @@ class Response(FlaskResponse):
         return json.loads(self.data)
 
 
-app.test_client_class = Client
-app.response_class = Response
-app.config['TESTING'] = True
-
-
-# FIXME: empty DB for each test!!
 @pytest.fixture
-def client():
+def db_session():
+    with tempfile.NamedTemporaryFile() as temp_db:
+        yield init_db(temp_db.name)
+
+
+@pytest.fixture
+def client(db_session):
+    app = create_app(db_session=db_session)
+
+    app.test_client_class = Client
+    app.response_class = Response
+    app.config['TESTING'] = True
+
     yield app.test_client()
 
 
-# FIXME: remove?
-def test_empty_db(client):
-    reply = client.get('/')
-    assert reply.data == b'Hello, World!'
+#######################
+# Test POST /register #
+#######################
 
 
-def test_register_new_user_happy_path(client):
+def test_register_new_user_happy_path(client, db_session):
     name = generate_username()
     password = generate_password()
     reply = client.post('/register', json={'username': name, 'password': password})
@@ -133,7 +155,12 @@ def test_register_new_user_extra_field(client):
     assert_error_json(reply, msg)
 
 
-def test_login_happy_path(client):
+####################
+# Test POST /login #
+####################
+
+
+def test_login_happy_path(client, db_session):
     name = generate_username()
     password = generate_password()
 
@@ -148,18 +175,15 @@ def test_login_happy_path(client):
     token = reply.json['token']
     assert re.match('^[a-f0-9]{64}$', token)
 
-    assert UserToken.get_user_id_with_token(token) == user_id
-    assert UserToken.get_user_id_with_token(token, db_session=db_session) == user_id
+    assert UserToken.get_user_id_with_token(token, db_session) == user_id
 
     # same prefix, but different suffix
     invalid_token = token[:32] + str(uuid.uuid4()).replace('-', '')
-    assert UserToken.get_user_id_with_token(invalid_token) is None
-    assert UserToken.get_user_id_with_token(invalid_token, db_session=db_session) is None
+    assert UserToken.get_user_id_with_token(invalid_token, db_session) is None
 
     # same suffix, but different prefix
     invalid_token = str(uuid.uuid4()).replace('-', '') + token[-32:]
-    assert UserToken.get_user_id_with_token(invalid_token) is None
-    assert UserToken.get_user_id_with_token(invalid_token, db_session=db_session) is None
+    assert UserToken.get_user_id_with_token(invalid_token, db_session) is None
 
 
 def test_login_user_not_found(client):
@@ -168,7 +192,7 @@ def test_login_user_not_found(client):
     assert_error_json(reply, 'User not found', 404)
 
 
-def test_login_wrong_password(client):
+def test_login_wrong_password(client, db_session):
     name = generate_username()
     password = generate_password()
 
@@ -194,9 +218,115 @@ def test_login_not_a_json(client):
     assert_error_json(reply, 'Please send a valid JSON with the appropriate Content-Type header')
 
 
+#######################
+# Test files endpoint #
+#######################
+
+
+# our fixtures' SHA1 hashes
+SHA1S = {
+    'happy_bunnies.jpg': '0e96d3e45f7d91da9a153386de498c67ccad18b2',
+    'sad_bunny.jpg':     'bd4ec98b1d918bd1859eec4e2fbd47de3009624c'
+}
+
+
+def test_files_happy_path(client, db_session):
+    token = get_valid_token(db_session)
+
+    # the list of our files should be empty
+    reply = get_list_files_and_check_reply(client, token)
+    assert reply.json == []
+
+    # now let's push some bunnies
+    fixture_name_1 = 'happy_bunnies.jpg'
+    route_1 = '/files/%s' % (fixture_name_1, )
+
+    push_file_and_check_reply(client, token, route_1)
+
+    # now let's try to retrieve it
+    retrieve_jpg_and_check_reply(client, token, route_1)
+
+    # and now our list of files should contain this entry
+    reply = get_list_files_and_check_reply(client, token)
+    assert reply.json == [fixture_name_1]
+
+    # now let's push another file
+    fixture_name_2 = 'sad_bunny.jpg'
+    route_2 = '/files/%s' % (fixture_name_2, )
+
+    push_file_and_check_reply(client, token, route_2)
+    retrieve_jpg_and_check_reply(client, token, route_2)
+
+    # our list of files should contain that too
+    reply = get_list_files_and_check_reply(client, token)
+    assert reply.json == [fixture_name_1, fixture_name_2]
+
+    # now let's delete the 1st image
+    delete_file_and_check_reply(client, token, route_1)
+
+    # trying to retrieve it should yield a 404
+    reply = client.get(route_1, token=token)
+    assert reply.status_code == 404
+
+    # and our lists should only contain the 2nd one now
+    reply = get_list_files_and_check_reply(client, token)
+    assert reply.json == [fixture_name_2]
+
+    # can't hurt to check the 2nd file's data is unaffected
+    retrieve_jpg_and_check_reply(client, token, route_2)
+
+    # now let's delete it too
+    delete_file_and_check_reply(client, token, route_2)
+    reply = client.get(route_2, token=token)
+    assert reply.status_code == 404
+
+    # the list of our files should be empty again
+    reply = get_list_files_and_check_reply(client, token)
+    assert reply.json == []
+
+
+def test_files_overwrite(client, db_session):
+    token = get_valid_token(db_session)
+    route = '/files/bunnies'
+
+    fixture_name_1 = 'happy_bunnies.jpg'
+    push_file_and_check_reply(client, token, route, fixture_name=fixture_name_1)
+    retrieve_jpg_and_check_reply(client, token, route, fixture_name=fixture_name_1)
+
+    # now let's overwrite it
+    fixture_name_2 = 'sad_bunny.jpg'
+    push_file_and_check_reply(client, token, route, fixture_name=fixture_name_2)
+    retrieve_jpg_and_check_reply(client, token, route, fixture_name=fixture_name_2)
+
+
+def test_files_same_filename_different_users(client, db_session):
+    route = '/files/bunnies'
+
+    token_1 = get_valid_token(db_session, 'user1')
+    fixture_name_1 = 'happy_bunnies.jpg'
+    push_file_and_check_reply(client, token_1, route, fixture_name=fixture_name_1)
+    retrieve_jpg_and_check_reply(client, token_1, route, fixture_name=fixture_name_1)
+
+    token_2 = get_valid_token(db_session, 'user2')
+    fixture_name_2 = 'sad_bunny.jpg'
+    push_file_and_check_reply(client, token_2, route, fixture_name=fixture_name_2)
+    retrieve_jpg_and_check_reply(client, token_2, route, fixture_name=fixture_name_2)
+
+    # didn't overwrite user 1's file
+    retrieve_jpg_and_check_reply(client, token_1, route, fixture_name=fixture_name_1)
+
+
 ################
 # Test Helpers #
 ################
+
+
+def get_valid_token(db_session, username=None):
+    if username is None:
+        username = generate_username()
+
+    user = User(username, generate_password(), db_session=db_session)
+    return str(UserToken(user, db_session=db_session))
 
 
 def assert_error_json(reply, message, status_code=400):
@@ -218,3 +348,46 @@ def generate_password(length=None):
 
 def random_string(length):
     return ''.join([random.choice(string.ascii_letters + string.digits) for _ in range(length)])
+
+
+def fixture_path(filename):
+    return os.path.join(os.path.dirname(__file__), 'fixtures', filename)
+
+
+def push_file_and_check_reply(client, token, route, fixture_name=None):
+    if fixture_name is None:
+        fixture_name = os.path.basename(route)
+
+    reply = client.put(route, token=token, fixture=fixture_name)
+
+    assert reply.status_code == 201
+    assert reply.headers['Location'] == 'http://localhost%s' % (route, )
+
+    return reply
+
+
+def retrieve_jpg_and_check_reply(client, token, route, fixture_name=None):
+    if fixture_name is None:
+        fixture_name = os.path.basename(route)
+
+    reply = client.get(route, token=token)
+
+    assert reply.status_code == 200
+    assert reply.headers['Content-Type'] == 'jpg'
+
+    # let's check the data is the same
+    assert hashlib.sha1(reply.data).hexdigest() == SHA1S[fixture_name]
+
+    return reply
+
+
+def get_list_files_and_check_reply(client, token):
+    reply = client.get('/files', token=token)
+    assert reply.status_code == 200
+    return reply
+
+
+def delete_file_and_check_reply(client, token, route):
+    reply = client.delete(route, token=token)
+    assert reply.status_code == 204
+    return reply

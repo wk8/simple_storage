@@ -1,9 +1,12 @@
-.DEFAULT_GOAL := run
+.DEFAULT_GOAL := all
 SHELL := /usr/bin/env bash
+
+.PHONY: all
+all: activate requirements run
 
 .PHONY: run
 run: activate
-	. activate && FLASK_APP=app/app.py flask run
+	. activate && FLASK_APP=app flask run
 
 .PHONY: test
 test: activate
@@ -21,8 +24,8 @@ venv:
 
 .PHONY: requirements
 requirements: activate
-	.activate && venv/bin/pip install -r requirements.txt
+	. activate && venv/bin/pip install -r requirements.txt
 
 .PHONY: freeze
 freeze: activate
-	.activate && venv/bin/pip freeze > requirements.txt
+	. activate && venv/bin/pip freeze > requirements.txt

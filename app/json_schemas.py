@@ -5,7 +5,7 @@ Simpler to just have them as py code altogether, and also
 allows re-using certain constants from the models
 '''
 
-from models import User
+from app.models import User
 
 _SCHEMA_VERSION = 'http://json-schema.org/draft-04/schema#'
 
