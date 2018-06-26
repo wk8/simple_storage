@@ -4,10 +4,13 @@ from flask.testing import FlaskClient
 import json
 import pytest
 import random
+import re
 import string
+import uuid
 
 from app import app
-from models import User
+from database import db_session
+from models import User, UserToken
 
 JSON_CONTENT_TYPE = 'application/json'
 
@@ -58,7 +61,7 @@ def test_register_new_user_happy_path(client):
     assert len(reply.data) == 0
 
     # the user should exist in the DB
-    user = User.query.filter(User.name == name).first()
+    user = db_session.query(User).filter(User.name == name).first()
     assert user is not None
     # and it should have the right password
     assert user.is_valid_password(password)
@@ -128,6 +131,67 @@ def test_register_new_user_extra_field(client):
 
     msg = "Invalid input: Additional properties are not allowed ('hey' was unexpected)"
     assert_error_json(reply, msg)
+
+
+def test_login_happy_path(client):
+    name = generate_username()
+    password = generate_password()
+
+    user = User(name, password, db_session=db_session)
+    user_id = user.id
+
+    reply = client.post('/login', json={'username': name, 'password': password})
+
+    assert reply.status_code == 200
+    assert list(reply.json.keys()) == ['token']
+
+    token = reply.json['token']
+    assert re.match('^[a-f0-9]{64}$', token)
+
+    assert UserToken.get_user_id_with_token(token) == user_id
+    assert UserToken.get_user_id_with_token(token, db_session=db_session) == user_id
+
+    # same prefix, but different suffix
+    invalid_token = token[:32] + str(uuid.uuid4()).replace('-', '')
+    assert UserToken.get_user_id_with_token(invalid_token) is None
+    assert UserToken.get_user_id_with_token(invalid_token, db_session=db_session) is None
+
+    # same suffix, but different prefix
+    invalid_token = str(uuid.uuid4()).replace('-', '') + token[-32:]
+    assert UserToken.get_user_id_with_token(invalid_token) is None
+    assert UserToken.get_user_id_with_token(invalid_token, db_session=db_session) is None
+
+
+def test_login_user_not_found(client):
+    reply = client.post('/login', json={'username': 'i dont exist', 'password': 'x'})
+
+    assert_error_json(reply, 'User not found', 404)
+
+
+def test_login_wrong_password(client):
+    name = generate_username()
+    password = generate_password()
+
+    user = User(name, password, db_session=db_session)
+
+    reply = client.post('/login', json={'username': name, 'password': 'wrong password!'})
+
+    assert_error_json(reply, 'Wrong password', 403)
+
+
+def test_login_missing_content_type_header(client):
+    name = generate_username()
+    password = generate_password()
+
+    body = {'username': name, 'password': password}
+    reply = client.post('/login', json=body, content_type=None)
+
+    assert_error_json(reply, 'Please send a valid JSON with the appropriate Content-Type header')
+
+
+def test_login_not_a_json(client):
+    reply = client.post('/login', data='i aint a JSON', content_type=JSON_CONTENT_TYPE)
+    assert_error_json(reply, 'Please send a valid JSON with the appropriate Content-Type header')
 
 
 ################

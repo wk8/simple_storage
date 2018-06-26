@@ -36,3 +36,21 @@ REGISTER_SCHEMA = _add_schema_version(
         ],
         'additionalProperties': False
     })
+
+LOGIN_SCHEMA = _add_schema_version(
+    {
+        'type': 'object',
+        'properties': {
+            'username': {
+                'type': 'string'
+            },
+            'password': {
+                'type': 'string'
+            }
+        },
+        'required': [
+            'username',
+            'password'
+        ],
+        'additionalProperties': False
+    })

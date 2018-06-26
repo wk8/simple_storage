@@ -1,3 +1,5 @@
+from functools import wraps
+
 from flask import jsonify, request
 
 from jsonschema import validate, ValidationError
@@ -5,6 +7,7 @@ from jsonschema import validate, ValidationError
 
 def validate_json(schema):
     def internal_decorator(handler):
+        @wraps(handler)
         def wrapper():
             json = request.get_json(silent=True, cache=False)
 
