@@ -10,7 +10,7 @@ jsonschema==2.6.0
 MarkupSafe==1.0
 more-itertools==4.2.0
 pluggy==0.6.0
-py==1.5.3
+py==1.10.0
 pycodestyle==2.4.0
 pycparser==2.18
 pytest==3.6.2
